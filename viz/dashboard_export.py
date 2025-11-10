@@ -378,9 +378,9 @@ def generate_dashboard() -> None:
     logger.info("Generating Chart C: CO₂ Forecast vs Actual ...")
     paths.append(chart_forecast_vs_actual(df))
 
-    print("\n── Dashboard Export Complete ──")
+    print("\n--- Dashboard Export Complete ---")
     for p in paths:
-        print(f"  ✅ {p}")
+        print(f"  [OK] {p}")
     print()
 
 

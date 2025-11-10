@@ -388,7 +388,7 @@ def run_pipeline() -> None:
         result = conn.execute(text(summary_query))
         rows   = result.fetchall()
 
-    print("\n── Emission Summary by State ──")
+    print("\n--- Emission Summary by State ---")
     print(f"{'State':<6} {'Total CO2 (tons)':>18} {'Records':>10}")
     print("-" * 38)
     for row in rows:

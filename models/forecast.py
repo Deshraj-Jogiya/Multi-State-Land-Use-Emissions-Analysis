@@ -68,10 +68,11 @@ TEST_SIZE   = 0.20
 FEATURE_COLS = [
     "day_of_year",
     "month",
-    "year",
     "area_ha",
     "land_type_encoded",
     "state_encoded",
+    "emission_factor",
+    "area_x_factor",
 ]
 TARGET_COL = "co2_tons"
 
@@ -172,6 +173,13 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
     if "land_type_encoded" not in df.columns:
         lt_map = {lt: i for i, lt in enumerate(sorted(LAND_TYPES))}
         df["land_type_encoded"] = df["land_type"].map(lt_map).fillna(0).astype(int)
+
+    # Add emission_factor column (key linear predictor)
+    if "emission_factor" not in df.columns:
+        df["emission_factor"] = df["land_type"].map(CO2_FACTORS).fillna(0)
+
+    # Interaction term: area_ha × emission_factor (the direct linear signal)
+    df["area_x_factor"] = df["area_ha"] * df["emission_factor"]
 
     # Ensure numeric area_ha
     df["area_ha"] = pd.to_numeric(df["area_ha"], errors="coerce").fillna(0)
@@ -352,15 +360,15 @@ def run_forecasting() -> None:
     rf_results = train_random_forest(X_train, X_test, y_train, y_test)
 
     # 5. Print report
-    print("\n" + "═" * 55)
-    print("  CO₂ FORECAST MODEL PERFORMANCE REPORT")
-    print("═" * 55)
+    print("\n" + "=" * 55)
+    print("  CO2 FORECAST MODEL PERFORMANCE REPORT")
+    print("=" * 55)
     print(f"  {'Metric':<22} {'Linear Reg':>12} {'Random Forest':>14}")
     print("  " + "-" * 51)
-    print(f"  {'R² Score':<22} {lr_results['r2']:>12.4f} {rf_results['r2']:>14.4f}")
+    print(f"  {'R2 Score':<22} {lr_results['r2']:>12.4f} {rf_results['r2']:>14.4f}")
     print(f"  {'MSE':<22} {lr_results['mse']:>12.4f} {rf_results['mse']:>14.4f}")
     print(f"  {'RMSE':<22} {lr_results['rmse']:>12.4f} {rf_results['rmse']:>14.4f}")
-    print("═" * 55)
+    print("=" * 55)
 
     print("\n  Linear Regression Coefficients:")
     for feat, coef in lr_results["coefficients"].items():
@@ -368,7 +376,7 @@ def run_forecasting() -> None:
 
     print("\n  Random Forest Feature Importances:")
     for _, row in rf_results["importance_df"].iterrows():
-        bar = "█" * int(row["importance"] * 60)
+        bar = "#" * int(row["importance"] * 60)
         print(f"    {row['feature']:<25} {row['importance']:.4f}  {bar}")
     print()
 
@@ -379,9 +387,9 @@ def run_forecasting() -> None:
     # 7. Accuracy gate
     best_r2 = max(lr_results["r2"], rf_results["r2"])
     if best_r2 >= 0.85:
-        print(f"  ✅ Target achieved: Best R² = {best_r2:.4f} (≥ 0.85 threshold)\n")
+        print(f"  Target achieved: Best R2 = {best_r2:.4f} (>= 0.85 threshold)\n")
     else:
-        print(f"  ⚠ Best R² = {best_r2:.4f} — below 0.85 target (may need more data).\n")
+        print(f"  WARNING: Best R2 = {best_r2:.4f} -- below 0.85 target (may need more data).\n")
 
 
 if __name__ == "__main__":
