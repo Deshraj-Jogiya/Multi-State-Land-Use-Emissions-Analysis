@@ -5,7 +5,7 @@ Multi-State Land Use Emissions Analysis
 Generates three publication-ready dashboard chart PNGs:
   (a) outputs/emissions_by_state.png        — Bar chart: net CO₂ by state
   (b) outputs/land_cover_timeseries.png     — Line chart: area by land type over time
-  (c) outputs/co2_forecast_vs_actual.png    — Scatter: forecast vs. actual CO₂
+  (c) outputs/co2_forecast_vs_actual.png    — held-out forecasts vs actual net CO₂ (from models/forecast.py)
 
 Loads data from SQLite DB if available, otherwise generates standalone synthetic data.
 
@@ -25,9 +25,6 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
 from sqlalchemy import create_engine, text
 
 # ---------------------------------------------------------------------------
@@ -267,81 +264,37 @@ def chart_land_cover_timeseries(df: pd.DataFrame) -> Path:
 # ---------------------------------------------------------------------------
 
 def chart_forecast_vs_actual(df: pd.DataFrame) -> Path:
+    """
+    Held-out forecasts from models/forecast.py (exports/forecast_holdout.csv): daily net CO2 summed over all states and land
+    types, actual against the Random Forest and the same-day-last-week baseline. Run models/forecast.py first.
+    """
     out_path = OUTPUT_DIR / "co2_forecast_vs_actual.png"
+    holdout_path = ROOT / "exports" / "forecast_holdout.csv"
+    if not holdout_path.exists():
+        logger.warning("No %s yet; run models/forecast.py before this chart.", holdout_path)
+        return out_path
+    h = pd.read_csv(holdout_path, parse_dates=["date"])
+    daily = h.groupby("date")[["co2_tons", "rf_forecast", "lag_7_co2"]].sum() / 1e6
+    metrics = pd.read_csv(ROOT / "exports" / "forecast_metrics.csv").set_index("model")["forecast_accuracy"]
 
-    # Build feature matrix
-    df = df.copy()
-    if "date" in df.columns:
-        dates = pd.to_datetime(df["date"], errors="coerce")
-        df["day_of_year"] = dates.dt.day_of_year.fillna(1).astype(int)
-        df["month"]       = dates.dt.month.fillna(1).astype(int)
-
-    state_map = {s: i for i, s in enumerate(sorted(STATES))}
-    lt_map    = {lt: i for i, lt in enumerate(sorted(LAND_TYPES))}
-    df["state_enc"] = df["state"].map(state_map).fillna(0)
-    df["lt_enc"]    = df["land_type"].map(lt_map).fillna(0)
-
-    feature_cols = ["day_of_year", "month", "area_ha", "lt_enc", "state_enc"]
-    df = df.dropna(subset=feature_cols + ["co2_tons"])
-
-    sample = df.sample(min(5000, len(df)), random_state=RNG_SEED)
-    X = sample[feature_cols].values
-    y = sample["co2_tons"].values
-
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=RNG_SEED)
-
-    # Train two models, pick Random Forest for scatter (better fit)
-    lr = LinearRegression()
-    lr.fit(X_tr, y_tr)
-    y_pred_lr = lr.predict(X_te)
-
-    rf = RandomForestRegressor(n_estimators=100, max_depth=12, random_state=RNG_SEED, n_jobs=-1)
-    rf.fit(X_tr, y_tr)
-    y_pred_rf = rf.predict(X_te)
-
-    # Scale to millions for readability
-    scale = 1e6
-    y_te_s    = y_te    / scale
-    y_pred_lr_s = y_pred_lr / scale
-    y_pred_rf_s = y_pred_rf / scale
-
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+    fig, ax = plt.subplots(figsize=(14, 6))
     fig.patch.set_facecolor(DARK_BG)
-    titles  = ["Linear Regression", "Random Forest"]
-    preds   = [y_pred_lr_s, y_pred_rf_s]
-    colors  = [ACCENT, "#6CC5A4"]
-
-    for ax, title, pred, color in zip(axes, titles, preds, colors):
-        ax.set_facecolor(PANEL_BG)
-
-        # Hexbin for density at scale
-        hb = ax.hexbin(y_te_s, pred, gridsize=40,
-                       cmap="Blues" if color == ACCENT else "Greens",
-                       mincnt=1, linewidths=0.1, alpha=0.85, zorder=3)
-        cb = fig.colorbar(hb, ax=ax, pad=0.02)
-        cb.ax.tick_params(colors=TEXT_COLOR, labelsize=7)
-        cb.set_label("Count", color=TEXT_COLOR, fontsize=8)
-
-        # Perfect prediction line
-        lims = [min(y_te_s.min(), pred.min()), max(y_te_s.max(), pred.max())]
-        ax.plot(lims, lims, "--", color="#FFFFFF", linewidth=1.2, alpha=0.5, zorder=4, label="Perfect fit")
-
-        from sklearn.metrics import r2_score as r2s
-        r2_val = r2s(y_te_s, pred)
-        ax.set_title(f"{title}\nR² = {r2_val:.4f}",
-                     color="white", fontsize=12, fontweight="bold", pad=12)
-        ax.set_xlabel("Actual CO₂ (M tons)", color=TEXT_COLOR, fontsize=10)
-        ax.tick_params(colors=TEXT_COLOR, labelsize=8)
-        for spine in ax.spines.values():
-            spine.set_color(GRID_COLOR)
-        ax.grid(True, color=GRID_COLOR, linewidth=0.4, zorder=1)
-
-    axes[0].set_ylabel("Predicted CO₂ (M tons)", color=TEXT_COLOR, fontsize=10)
-
-    fig.suptitle(
-        "CO₂ Forecast vs. Actual  |  Land Emissions Models",
-        color="white", fontsize=15, fontweight="bold", y=1.01,
-    )
+    ax.set_facecolor(PANEL_BG)
+    ax.plot(daily.index, daily["co2_tons"], color="#6CC5A4", linewidth=2.5, marker="o", markersize=4, label="Actual net CO2")
+    ax.plot(daily.index, daily["rf_forecast"], color=ACCENT, linewidth=2, linestyle="--", label="Random Forest forecast")
+    ax.plot(daily.index, daily["lag_7_co2"], color="#8899AA", linewidth=1.5, linestyle=":", label="Same day last week")
+    ax.set_title("Net CO2 on the four held-out weeks (all states and land types)", color="white", fontsize=14,
+                 fontweight="bold", pad=12)
+    ax.set_ylabel("Net CO2 (million tons; negative = net sink)", color=TEXT_COLOR)
+    ax.tick_params(colors=TEXT_COLOR)
+    for spine in ax.spines.values():
+        spine.set_color(GRID_COLOR)
+    ax.grid(True, color=GRID_COLOR, linewidth=0.4)
+    ax.legend(fontsize=10, framealpha=0.3, labelcolor="white", loc="upper left")
+    ax.text(0.99, 0.04,
+            f"Accuracy (1 - WAPE) per state, land type and day: Random Forest {metrics['Random Forest']:.2%}, "
+            f"same day last week {metrics['Same day last week']:.2%}",
+            transform=ax.transAxes, ha="right", va="bottom", fontsize=9.5, color=TEXT_COLOR)
     plt.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
     plt.close(fig)

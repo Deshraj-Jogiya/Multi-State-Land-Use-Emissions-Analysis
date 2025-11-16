@@ -25,7 +25,7 @@ from sqlalchemy import create_engine, text
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from etl.transform import transform, detect_land_changes
+from etl.transform import transform, detect_land_changes, detect_outliers
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -123,6 +123,8 @@ def generate_synthetic_csv(state: str, run_date: date, rng: np.random.Generator)
             "land_type":   land_type,
             "area_ha":     round(area_ha, 2),
             "source_file": f"{state}_{run_date.isoformat()}_landcover.csv",
+            # Ground truth for scoring the shock detector; never ingested into land_use_records
+            "injected_shock": int(shock != 0.0),
         })
 
     return pd.DataFrame(rows)
@@ -222,6 +224,20 @@ def ingest_records(df: pd.DataFrame, engine, table: str = "land_use_records") ->
     df_insert = df[cols].copy()
     df_insert.to_sql(table, con=engine, if_exists="append", index=False)
     return len(df_insert)
+
+
+def score_shock_detection(df: pd.DataFrame, engine) -> dict:
+    """Store the generator's injected shocks and report precision and recall of the shock detector against them."""
+    truth = df["injected_shock"].fillna(0).astype(int) == 1
+    flagged = df["is_anomaly"] == 1
+    df.loc[truth, ["state", "date", "land_type"]].to_sql("injected_shocks", con=engine, if_exists="replace", index=False)
+    tp = int((truth & flagged).sum())
+    precision = tp / int(flagged.sum()) if flagged.any() else 0.0
+    recall = tp / int(truth.sum()) if truth.any() else 0.0
+    logger.info("Shock detection vs injected shocks: %d injected, %d flagged, %d correct | precision %.1f%%, recall %.1f%%",
+                int(truth.sum()), int(flagged.sum()), tp, 100 * precision, 100 * recall)
+    return {"injected": int(truth.sum()), "flagged": int(flagged.sum()), "true_positives": tp,
+            "precision": precision, "recall": recall}
 
 
 def ingest_changes(change_df: pd.DataFrame, engine) -> int:
@@ -352,6 +368,11 @@ def run_pipeline() -> None:
     # Combine all daily records
     combined_df = pd.concat(all_records, ignore_index=True)
     logger.info("Total records before ingestion: %d", len(combined_df))
+
+    # Shock detection needs every day of each state and land type, so it runs on the combined data
+    combined_df = detect_outliers(combined_df)
+    if "injected_shock" in combined_df.columns:
+        score_shock_detection(combined_df, engine)
 
     # Ingest land_use_records
     n_inserted = ingest_records(combined_df, engine)
