@@ -40,3 +40,21 @@ def test_forecast_features_exclude_the_same_day_area():
 
 def test_forecast_accuracy_uses_magnitudes():
     assert fc.forecast_accuracy([-100, 100], [-90, 110]) == 0.9
+
+
+def test_state_outlines_match_census_and_shock_points_land_in_their_state():
+    from etl import geo
+    states = geo.load_states()
+    assert set(states["state"]) == {"AL", "CA", "TX", "WA", "FL"}
+    geo.check_areas(states)  # raises if an outline's area is outside the Census land / land+water bounds
+    records = pd.DataFrame({"state": ["WA", "FL", "TX"], "date": ["2025-05-01"] * 3, "land_type": ["forest"] * 3,
+                            "area_ha": [1.0] * 3, "co2_tons": [-3.5] * 3, "is_anomaly": [1, 1, 1]})
+    events = geo.locate_shocks(records, states)  # raises if any point falls outside its state
+    assert len(events) == 3
+
+
+def test_cap_values_are_the_census_land_areas():
+    from etl import geo
+    states = geo.load_states().set_index("state")
+    for state, cap in tf.STATE_LAND_AREA_HA.items():
+        assert abs(cap - states.loc[state, "census_land_m2"] / 1e4) < 1

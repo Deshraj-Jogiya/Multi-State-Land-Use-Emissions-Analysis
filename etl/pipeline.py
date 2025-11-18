@@ -378,6 +378,10 @@ def run_pipeline() -> None:
     n_inserted = ingest_records(combined_df, engine)
     logger.info("Inserted %d records into land_use_records.", n_inserted)
 
+    # Geospatial layers for the ArcGIS dashboard (state polygons with net CO2, shock event points)
+    from etl.geo import build_layers
+    build_layers(combined_df)
+
     # Detect and ingest land changes
     logger.info("Running land change detection ...")
     change_df = detect_land_changes(combined_df)
