@@ -40,6 +40,9 @@ DB_PATH    = ROOT / "outputs" / "land_use_emissions.db"
 OUTPUT_DIR = ROOT / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+sys.path.insert(0, str(ROOT))
+from etl.transform import EMISSION_FACTORS  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -53,15 +56,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-CO2_FACTORS: dict[str, float] = {
-    "forest":      -3.5,
-    "urban":       +2.1,
-    "agriculture": +0.8,
-    "wetland":     -1.2,
-    "shrubland":   -0.3,
-}
+LAND_TYPES_ORDER = ["forest", "urban", "agriculture", "wetland", "shrubland"]
 STATES      = ["AL", "CA", "TX", "WA", "FL"]
-LAND_TYPES  = list(CO2_FACTORS.keys())
+LAND_TYPES  = LAND_TYPES_ORDER
 RNG_SEED    = 42
 TEST_SIZE   = 0.20
 
@@ -132,7 +129,7 @@ def generate_synthetic_ml_data(n_samples: int = 15_000) -> pd.DataFrame:
                 seasonal = 1 + 0.01 * np.sin(2 * np.pi * day_of_year / 365)
                 noise    = rng.normal(0, 0.02)
                 area_ha  = max(0, base_area * seasonal * (1 + noise))
-                co2_factor = CO2_FACTORS[land_type]
+                co2_factor = EMISSION_FACTORS[(state, land_type)]
                 # Add slight non-linearity for RF to exploit
                 co2_tons = (area_ha * co2_factor
                             + 0.3 * area_ha * co2_factor * np.sin(2 * np.pi * day_of_year / 365)
@@ -180,7 +177,7 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Add emission_factor column (key linear predictor)
     if "emission_factor" not in df.columns:
-        df["emission_factor"] = df["land_type"].map(CO2_FACTORS).fillna(0)
+        df["emission_factor"] = [EMISSION_FACTORS.get(k, 0.0) for k in zip(df["state"], df["land_type"])]
 
     # Lagged net CO2 per state and land type, as of 7 and 14 days earlier
     df["date"] = pd.to_datetime(df["date"])
@@ -412,7 +409,7 @@ def run_forecasting() -> None:
 
     # 6. Save feature importance chart
     chart_path = save_feature_importance_chart(rf_results["importance_df"])
-    print(f"  Feature importance chart → {chart_path}\n")
+    print(f"  Feature importance chart: {chart_path}\n")
 
 
 

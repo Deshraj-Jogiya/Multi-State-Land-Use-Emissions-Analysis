@@ -32,6 +32,9 @@ from sqlalchemy import create_engine, text
 # ---------------------------------------------------------------------------
 ROOT       = Path(__file__).resolve().parent.parent
 DB_PATH    = ROOT / "outputs" / "land_use_emissions.db"
+
+sys.path.insert(0, str(ROOT))
+from etl.transform import EMISSION_FACTORS, STATE_BASELINES  # noqa: E402
 OUTPUT_DIR = ROOT / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -69,13 +72,6 @@ LAND_TYPE_PALETTE = {
 
 STATES     = ["AL", "CA", "TX", "WA", "FL"]
 LAND_TYPES = ["forest", "urban", "agriculture", "wetland", "shrubland"]
-CO2_FACTORS = {
-    "forest":      -3.5,
-    "urban":       +2.1,
-    "agriculture": +0.8,
-    "wetland":     -1.2,
-    "shrubland":   -0.3,
-}
 RNG_SEED = 42
 
 
@@ -105,14 +101,6 @@ def generate_synthetic_data(n_days: int = 213) -> pd.DataFrame:
     rng   = np.random.default_rng(RNG_SEED)
     dates = pd.date_range("2025-04-01", periods=n_days, freq="D")
 
-    STATE_BASELINES = {
-        "AL": {"forest": 9_500_000, "urban":   620_000, "agriculture": 3_200_000, "wetland":  400_000, "shrubland":  180_000},
-        "CA": {"forest": 6_800_000, "urban": 2_400_000, "agriculture": 9_600_000, "wetland":  150_000, "shrubland": 4_200_000},
-        "TX": {"forest": 5_600_000, "urban": 2_900_000, "agriculture":19_000_000, "wetland":  800_000, "shrubland": 5_300_000},
-        "WA": {"forest":10_400_000, "urban":   720_000, "agriculture": 4_200_000, "wetland":  320_000, "shrubland": 1_100_000},
-        "FL": {"forest": 6_100_000, "urban": 1_800_000, "agriculture": 4_400_000, "wetland": 2_900_000, "shrubland":  400_000},
-    }
-
     rows = []
     for state in STATES:
         for land_type in LAND_TYPES:
@@ -122,7 +110,7 @@ def generate_synthetic_data(n_days: int = 213) -> pd.DataFrame:
                 s    = 1 + 0.01 * np.sin(2 * np.pi * doy / 365)
                 noise = rng.normal(0, 0.005)
                 area  = max(0, base * s * (1 + noise))
-                co2   = area * CO2_FACTORS[land_type]
+                co2   = area * EMISSION_FACTORS[(state, land_type)]
                 rows.append({
                     "state": state, "date": d.strftime("%Y-%m-%d"),
                     "land_type": land_type, "area_ha": area, "co2_tons": co2,
