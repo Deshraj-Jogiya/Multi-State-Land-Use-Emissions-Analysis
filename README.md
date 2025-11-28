@@ -41,6 +41,8 @@ EPA's real state greenhouse-gas inventory for land use (1990-2022); the daily la
 - **Tests** cover the area cap (the Census land areas), the shock detector, the geospatial checks, the forecast features, the
   accuracy metric, the EPA extract and factors, the real-data forecast and rerunning a load.
 
+Measured results, each with the question, the test and the decision: [docs/FINDINGS.md](docs/FINDINGS.md).
+
 ## Architecture
 
 ```mermaid
