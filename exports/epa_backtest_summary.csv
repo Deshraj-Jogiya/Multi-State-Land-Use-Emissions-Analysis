@@ -1,0 +1,6 @@
+model,mean_accuracy,worst_year_accuracy,best_year_accuracy,mean_skill,years_beating_last_year,wape_p10,wape_p90
+Last year's value,0.9506,0.9274,0.9661,0.0,0,0.0361,0.0711
+Linear Regression,0.9463,0.9073,0.9708,-0.0781,2,0.0377,0.0726
+Random Forest,0.9421,0.9131,0.971,-0.1751,2,0.0397,0.0755
+3-year average,0.9417,0.8989,0.9663,-0.1661,1,0.0391,0.083
+Recent trend,0.9349,0.9062,0.9596,-0.3296,0,0.0415,0.0854

@@ -21,5 +21,6 @@ jobs:
           python models/forecast.py
           python viz/dashboard_export.py
           python models/epa_forecast.py
+          python models/epa_backtest.py
       - name: Run the tests
         run: pip install pytest && python -m pytest tests/ -v

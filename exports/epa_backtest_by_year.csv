@@ -1,0 +1,41 @@
+model,year,accuracy,skill_vs_last_year,points
+3-year average,2015,0.9512,-0.293,25.0
+3-year average,2016,0.95,-0.0468,25.0
+3-year average,2017,0.9517,-0.1351,25.0
+3-year average,2018,0.9585,-0.1175,25.0
+3-year average,2019,0.9663,0.0065,25.0
+3-year average,2020,0.9247,-0.0373,25.0
+3-year average,2021,0.8989,-0.4362,25.0
+3-year average,2022,0.9323,-0.2693,25.0
+Last year's value,2015,0.9623,0.0,25.0
+Last year's value,2016,0.9523,0.0,25.0
+Last year's value,2017,0.9574,0.0,25.0
+Last year's value,2018,0.9629,0.0,25.0
+Last year's value,2019,0.9661,0.0,25.0
+Last year's value,2020,0.9274,0.0,25.0
+Last year's value,2021,0.9296,0.0,25.0
+Last year's value,2022,0.9467,0.0,25.0
+Linear Regression,2015,0.9563,-0.1579,25.0
+Linear Regression,2016,0.9463,-0.126,25.0
+Linear Regression,2017,0.9569,-0.0126,25.0
+Linear Regression,2018,0.9586,-0.1154,25.0
+Linear Regression,2019,0.9708,0.1378,25.0
+Linear Regression,2020,0.936,0.1177,25.0
+Linear Regression,2021,0.9073,-0.317,25.0
+Linear Regression,2022,0.9386,-0.1514,25.0
+Random Forest,2015,0.9512,-0.293,25.0
+Random Forest,2016,0.94,-0.256,25.0
+Random Forest,2017,0.9431,-0.3375,25.0
+Random Forest,2018,0.9558,-0.1922,25.0
+Random Forest,2019,0.971,0.1437,25.0
+Random Forest,2020,0.9293,0.0261,25.0
+Random Forest,2021,0.9131,-0.2339,25.0
+Random Forest,2022,0.9329,-0.2578,25.0
+Recent trend,2015,0.9596,-0.0699,25.0
+Recent trend,2016,0.9418,-0.2186,25.0
+Recent trend,2017,0.9243,-0.7799,25.0
+Recent trend,2018,0.9524,-0.2845,25.0
+Recent trend,2019,0.9581,-0.2367,25.0
+Recent trend,2020,0.9183,-0.1263,25.0
+Recent trend,2021,0.9182,-0.1619,25.0
+Recent trend,2022,0.9062,-0.7591,25.0
