@@ -21,6 +21,33 @@ README reports the baseline next to the model scores.
 
 **Source:** `exports/epa_forecast_metrics.csv`, `exports/epa_forecast_holdout.csv`, `models/epa_forecast.py`.
 
+## Does that hold from more than one starting year?
+
+**How it was tested:** one split can be luck, so `models/epa_backtest.py` repeats the test from eight forecast origins. For each
+target year 2015-2022 the models are trained on every earlier year and forecast that one year for all 25 series. Two more simple
+baselines are added: the recent trend (last year plus last year's change) and the 3-year average. Skill is 1 − (model's error /
+last year's value's error), so above 0 means better than repeating last year.
+
+| Model | Mean accuracy | Worst year | Best year | Years beating last year's value |
+|---|---|---|---|---|
+| Last year's value | 0.9506 | 0.9274 | 0.9661 | (reference) |
+| Linear Regression | 0.9463 | 0.9073 | 0.9708 | 2 of 8 (2019, 2020) |
+| Random Forest | 0.9421 | 0.9131 | 0.9710 | 2 of 8 (2019, 2020) |
+| 3-year average | 0.9417 | 0.8989 | 0.9663 | 1 of 8 |
+| Recent trend | 0.9349 | 0.9062 | 0.9596 | 0 of 8 |
+
+Last year's value is also the most accurate model on 13 of the 25 series. Its yearly error (WAPE) ran from 3.6% to 7.1% (10th to
+90th percentile), the range to expect from a new one-year-ahead forecast.
+
+![Accuracy per year by model](../viz/preview/epa_backtest_by_year.png)
+
+**Decision:** the result holds across origins: no model is presented as better than last year's value.
+
+**Skills shown:** walk-forward backtesting, baseline skill scores, scikit-learn, pandas, Matplotlib.
+
+**Source:** `exports/epa_backtest_by_year.csv`, `exports/epa_backtest_by_series.csv`, `exports/epa_backtest_summary.csv`,
+`models/epa_backtest.py`, `viz/backtest_chart.py`.
+
 ## Do the models add anything on the simulated daily balance?
 
 **How it was tested:** a week-ahead forecast from lagged values only, scored on the final four weeks (`models/forecast.py`).

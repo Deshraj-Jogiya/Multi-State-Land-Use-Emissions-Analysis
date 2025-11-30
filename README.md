@@ -27,6 +27,8 @@ EPA's real state greenhouse-gas inventory for land use (1990-2022); the daily la
   forecast a year ahead from the three previous years, trained on years up to 2017 and scored on 2018-2022. Linear Regression
   reaches **94.2%** accuracy (1 − WAPE) and Random Forest **93.3%**, but repeating last year's value scores
   94.7%: land-use flux changes slowly, and predicting the year-to-year change instead does not beat that baseline either.
+- **Backtest** (`models/epa_backtest.py`): the same test from eight origins (target years 2015-2022) with two more baselines. Last
+  year's value averages **95.1%** and no model beats it in 6 of the 8 years.
 - **Forecasting the simulated daily balance** (`models/forecast.py`): a week ahead from lagged values only, scored on the final four
   weeks: Linear Regression 99.81%, Random Forest 99.83%, repeating last week's value 99.84%. Daily land
   cover barely moves outside shocks, so the models add nothing here. An earlier version reported R² = 1.0 because the target (area ×
@@ -71,6 +73,8 @@ pip install -r requirements.txt
 python etl/pipeline.py
 python models/forecast.py
 python models/epa_forecast.py
+python models/epa_backtest.py
+python viz/backtest_chart.py
 python viz/dashboard_export.py
 python benchmarks/prep_hours.py
 python -m pytest tests/ -v
