@@ -18,13 +18,20 @@ tests whether Random Forest and Linear Regression can forecast the balance a wee
   scored on the final four weeks. Random Forest reaches 99.79% accuracy (1 − WAPE) and Linear Regression 99.77%, but repeating
   last week's value already reaches 99.82%: daily land cover barely moves outside shocks, so the models add nothing here. An
   earlier version reported R² = 1.0 because the target (area × emission factor) could be computed from its own features.
-- **Tests** cover the area cap, the shock detector, the forecast features and the accuracy metric.
+- **Geospatial layer** (`etl/geo.py`) on US Census Bureau state boundaries (2023 cartographic file): outline areas are computed in
+  an equal-area projection (EPSG:5070) and checked against Census land and water area; each state polygon carries its net CO2 and
+  CO2 per km² of land; each detected shock gets a map point inside its state (the coordinates are synthetic, since the land-cover
+  feed reports states, not locations), and a point-in-polygon spatial join confirms every point lies in its reported state. Both
+  layers are written as GeoJSON for the ArcGIS Online dashboard.
+- **Tests** cover the area cap (the Census land areas), the shock detector, the geospatial checks, the forecast features and the
+  accuracy metric.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     E[etl/pipeline.py + transform.py<br/>clean, net CO2, shock detection] --> DB[(SQLite)]
+    E --> G[etl/geo.py<br/>Census boundaries, spatial join] --> GJ[GeoJSON layers<br/>for ArcGIS Online]
     DB --> F[models/forecast.py<br/>week-ahead forecast vs baseline]
     F --> X[exports/*.csv]
     DB --> V[viz/dashboard_export.py]
@@ -35,7 +42,7 @@ flowchart LR
 
 ## Stack
 
-Python, pandas, NumPy, SQLite, scikit-learn, SQLAlchemy, Matplotlib, pytest, GitHub Actions.
+Python, pandas, NumPy, GeoPandas, Shapely, SQLite, scikit-learn, SQLAlchemy, Matplotlib, ArcGIS Online, pytest, GitHub Actions.
 
 ## Run it
 
@@ -51,4 +58,5 @@ python -m pytest tests/ -v
 
 Daily land-cover files are generated per state by the pipeline (synthetic, seeded) when no source file is present: 5 states x
 5 land types x 214 days (2025-04-01 to 2025-10-31), starting from baselines that roughly follow each state's land cover, with
-seasonal swings, 0.1% daily noise and rare 2–8% shocks. The CO2 factors are illustrative, not an official inventory.
+seasonal swings, 0.1% daily noise and rare 2–8% shocks. The CO2 factors are illustrative, not an official inventory. State boundaries and land areas are real: US Census Bureau
+`cb_2023_us_state_20m`, simplified to 0.01° and stored in `data/geo/states.geojson`.

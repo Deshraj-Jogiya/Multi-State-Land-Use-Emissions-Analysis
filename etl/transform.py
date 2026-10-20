@@ -36,14 +36,14 @@ VALID_STATES: set[str] = {"AL", "CA", "TX", "WA", "FL"}
 VALID_LAND_TYPES: set[str] = set(CO2_FACTORS.keys())
 
 AREA_MIN_HA: float = 0.0
-# Upper bound for one land type's area: the state's whole land area (US Census Bureau land area, km2 x 100).
+# Upper bound for one land type's area: the state's whole land area (US Census Bureau, 2023 boundaries).
 # A flat 5,000,000 ha cap used to clip real values such as Alabama's forest and Texas agriculture.
-STATE_LAND_AREA_HA: dict[str, float] = {
-    "AL": 13_117_100.0,
-    "CA": 40_346_600.0,
-    "TX": 67_658_700.0,
-    "WA": 17_211_900.0,
-    "FL": 13_888_700.0,
+STATE_LAND_AREA_HA: dict[str, float] = {   # Census ALAND in data/geo/states.geojson (cb_2023_us_state_20m), m2 / 10,000
+    "AL": 13_118_505.0,
+    "CA": 40_367_330.0,
+    "TX": 67_668_624.0,
+    "WA": 17_211_878.0,
+    "FL": 13_896_376.0,
 }
 
 
