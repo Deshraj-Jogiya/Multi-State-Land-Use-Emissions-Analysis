@@ -8,7 +8,8 @@ Trains on synthetic time-series data derived from the SQLite database
 (or generates standalone synthetic data if DB is not yet populated).
 
 Outputs:
-  • Printed R² and MSE for both models
+  • Printed R², RMSE and forecast accuracy (1 - WAPE) on the held-out final four weeks, next to a last-week baseline
+  • exports/forecast_holdout.csv, exports/forecast_metrics.csv
   • outputs/feature_importance.png  — RF feature importance bar chart
 
 Run:  python models/forecast.py
@@ -28,7 +29,6 @@ import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sqlalchemy import create_engine, text
 
@@ -65,16 +65,20 @@ LAND_TYPES  = list(CO2_FACTORS.keys())
 RNG_SEED    = 42
 TEST_SIZE   = 0.20
 
+# Everything is known a week before the day being forecast. The same-day area is deliberately not a feature:
+# co2_tons is area_ha x a fixed factor, so giving the model that day's area (as the first version did) lets it
+# compute the answer instead of forecasting it.
 FEATURE_COLS = [
     "day_of_year",
     "month",
-    "area_ha",
     "land_type_encoded",
     "state_encoded",
-    "emission_factor",
-    "area_x_factor",
+    "lag_7_co2",
+    "lag_14_co2",
+    "rolling_7_mean_co2",
 ]
 TARGET_COL = "co2_tons"
+TEST_DAYS = 28  # the final four weeks are held out
 
 
 # ---------------------------------------------------------------------------
@@ -178,11 +182,13 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
     if "emission_factor" not in df.columns:
         df["emission_factor"] = df["land_type"].map(CO2_FACTORS).fillna(0)
 
-    # Interaction term: area_ha × emission_factor (the direct linear signal)
-    df["area_x_factor"] = df["area_ha"] * df["emission_factor"]
-
-    # Ensure numeric area_ha
-    df["area_ha"] = pd.to_numeric(df["area_ha"], errors="coerce").fillna(0)
+    # Lagged net CO2 per state and land type, as of 7 and 14 days earlier
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values(["state", "land_type", "date"])
+    grp = df.groupby(["state", "land_type"])["co2_tons"]
+    df["lag_7_co2"] = grp.shift(7)
+    df["lag_14_co2"] = grp.shift(14)
+    df["rolling_7_mean_co2"] = grp.transform(lambda x: x.shift(7).rolling(7).mean())
 
     return df
 
@@ -190,6 +196,23 @@ def prepare_features(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Model Training & Evaluation
 # ---------------------------------------------------------------------------
+
+def forecast_accuracy(y_true, y_pred) -> float:
+    """1 - WAPE on magnitudes: one minus total absolute error over total absolute net CO2 (sinks are negative)."""
+    y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
+    return float(1 - np.abs(y_true - y_pred).sum() / np.abs(y_true).sum())
+
+
+def export_results(test: pd.DataFrame, accuracies: dict, results: dict) -> None:
+    """Write held-out forecasts and model metrics to exports/ (feeds the ArcGIS dashboard and the README)."""
+    out = ROOT / "exports"
+    out.mkdir(exist_ok=True)
+    cols = ["date", "state", "land_type", "co2_tons", "lag_7_co2", "lr_forecast", "rf_forecast"]
+    test[cols].assign(date=test["date"].dt.date).round(1).to_csv(out / "forecast_holdout.csv", index=False)
+    rows = [{"model": k, "forecast_accuracy": round(v, 4),
+             "r2": round(results[k]["r2"], 4) if k in results else None} for k, v in accuracies.items()]
+    pd.DataFrame(rows).to_csv(out / "forecast_metrics.csv", index=False)
+
 
 def train_linear_regression(X_train, X_test, y_train, y_test) -> dict:
     """
@@ -346,14 +369,13 @@ def run_forecasting() -> None:
         logger.error("Not enough data for training (need ≥50 rows). Exiting.")
         sys.exit(1)
 
-    X = df[FEATURE_COLS].values
-    y = df[TARGET_COL].values
-
-    # 3. Train/test split (time-aware: sorted by date then split)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=TEST_SIZE, random_state=RNG_SEED, shuffle=True,
-    )
-    logger.info("Train: %d rows | Test: %d rows", len(X_train), len(X_test))
+    # 3. Chronological split: the final TEST_DAYS days are never seen in training
+    cutoff = df["date"].max() - pd.Timedelta(days=TEST_DAYS - 1)
+    train, test = df[df["date"] < cutoff], df[df["date"] >= cutoff]
+    X_train, X_test = train[FEATURE_COLS].values, test[FEATURE_COLS].values
+    y_train, y_test = train[TARGET_COL].values, test[TARGET_COL].values
+    logger.info("Train: %d rows (to %s) | Test: %d rows (%s to %s)", len(train), train["date"].max().date(),
+                len(test), test["date"].min().date(), test["date"].max().date())
 
     # 4. Train models
     lr_results = train_linear_regression(X_train, X_test, y_train, y_test)
@@ -368,7 +390,15 @@ def run_forecasting() -> None:
     print(f"  {'R2 Score':<22} {lr_results['r2']:>12.4f} {rf_results['r2']:>14.4f}")
     print(f"  {'MSE':<22} {lr_results['mse']:>12.4f} {rf_results['mse']:>14.4f}")
     print(f"  {'RMSE':<22} {lr_results['rmse']:>12.4f} {rf_results['rmse']:>14.4f}")
+    naive = test["lag_7_co2"].values
+    accuracies = {"Linear Regression": forecast_accuracy(y_test, lr_results["y_pred"]),
+                  "Random Forest": forecast_accuracy(y_test, rf_results["y_pred"]),
+                  "Same day last week": forecast_accuracy(y_test, naive)}
+    print(f"  {'Accuracy (1-WAPE)':<22} {accuracies['Linear Regression']:>12.2%} {accuracies['Random Forest']:>14.2%}")
+    print(f"  Same-day-last-week baseline accuracy: {accuracies['Same day last week']:.2%}")
     print("=" * 55)
+    export_results(test.assign(lr_forecast=lr_results["y_pred"], rf_forecast=rf_results["y_pred"]), accuracies,
+                   {"Linear Regression": lr_results, "Random Forest": rf_results})
 
     print("\n  Linear Regression Coefficients:")
     for feat, coef in lr_results["coefficients"].items():
@@ -384,12 +414,6 @@ def run_forecasting() -> None:
     chart_path = save_feature_importance_chart(rf_results["importance_df"])
     print(f"  Feature importance chart → {chart_path}\n")
 
-    # 7. Accuracy gate
-    best_r2 = max(lr_results["r2"], rf_results["r2"])
-    if best_r2 >= 0.85:
-        print(f"  Target achieved: Best R2 = {best_r2:.4f} (>= 0.85 threshold)\n")
-    else:
-        print(f"  WARNING: Best R2 = {best_r2:.4f} -- below 0.85 target (may need more data).\n")
 
 
 if __name__ == "__main__":

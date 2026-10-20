@@ -36,8 +36,15 @@ VALID_STATES: set[str] = {"AL", "CA", "TX", "WA", "FL"}
 VALID_LAND_TYPES: set[str] = set(CO2_FACTORS.keys())
 
 AREA_MIN_HA: float = 0.0
-AREA_MAX_HA: float = 5_000_000.0  # upper bound for sanity check
-ANOMALY_Z_THRESHOLD: float = 2.5
+# Upper bound for one land type's area: the state's whole land area (US Census Bureau land area, km2 x 100).
+# A flat 5,000,000 ha cap used to clip real values such as Alabama's forest and Texas agriculture.
+STATE_LAND_AREA_HA: dict[str, float] = {
+    "AL": 13_117_100.0,
+    "CA": 40_346_600.0,
+    "TX": 67_658_700.0,
+    "WA": 17_211_900.0,
+    "FL": 13_888_700.0,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +104,7 @@ def filter_valid_categories(df: pd.DataFrame) -> pd.DataFrame:
 def clean_area(df: pd.DataFrame) -> pd.DataFrame:
     """
     Converts area_ha to numeric; clamps out-of-range values.
-    Negative areas are set to 0; extreme outliers capped at AREA_MAX_HA.
+    Negative areas are set to 0; a value larger than the whole state's land area is capped at that area.
     """
     df = df.copy()
     df["area_ha"] = pd.to_numeric(df["area_ha"], errors="coerce")
@@ -110,13 +117,14 @@ def clean_area(df: pd.DataFrame) -> pd.DataFrame:
 
     # Clamp
     n_neg = (df["area_ha"] < AREA_MIN_HA).sum()
-    n_big = (df["area_ha"] > AREA_MAX_HA).sum()
+    cap = df["state"].map(STATE_LAND_AREA_HA)
+    n_big = (df["area_ha"] > cap).sum()
     if n_neg:
         logger.info("Clamping %d negative area_ha values to 0.", n_neg)
     if n_big:
-        logger.info("Clamping %d oversized area_ha values to %.0f.", n_big, AREA_MAX_HA)
+        logger.info("Clamping %d area_ha values larger than their state's land area.", n_big)
 
-    df["area_ha"] = df["area_ha"].clip(lower=AREA_MIN_HA, upper=AREA_MAX_HA)
+    df["area_ha"] = df["area_ha"].clip(lower=AREA_MIN_HA, upper=cap)
     return df
 
 
@@ -175,32 +183,32 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Step 7: Outlier Detection (Z-Score per land_type)
+# Step 7: Shock Detection (per state and land type, over the whole series)
 # ---------------------------------------------------------------------------
 
-def detect_outliers(df: pd.DataFrame, threshold: float = ANOMALY_Z_THRESHOLD) -> pd.DataFrame:
-    """
-    Flags rows where co2_tons is more than `threshold` standard deviations
-    from the land_type group mean. Adds boolean column `is_anomaly`.
-    """
-    df = df.copy()
-    df["is_anomaly"] = 0
+SHOCK_WINDOW_DAYS: int = 7          # centred rolling median the day is compared with
+SHOCK_THRESHOLD: float = 6.0        # flag when the deviation exceeds 6 robust standard deviations of that series
 
-    for lt, group in df.groupby("land_type"):
-        mean  = group["co2_tons"].mean()
-        std   = group["co2_tons"].std(ddof=1)
-        if std == 0 or np.isnan(std):
-            continue
-        z_scores = (group["co2_tons"] - mean).abs() / std
-        anomaly_idx = z_scores[z_scores > threshold].index
-        df.loc[anomaly_idx, "is_anomaly"] = 1
 
-    n_anomalies = df["is_anomaly"].sum()
-    logger.info(
-        "Outlier detection (z>%.1f): flagged %d / %d records (%.2f%%).",
-        threshold, n_anomalies, len(df), 100 * n_anomalies / max(len(df), 1),
-    )
-    return df
+def detect_outliers(df: pd.DataFrame, threshold: float = SHOCK_THRESHOLD) -> pd.DataFrame:
+    """
+    Flags days whose area departs sharply from the same state and land type's surrounding days (a wildfire, a burst of
+    urban expansion). Each day is compared with the centred 7-day rolling median of its own series, and the deviation is
+    scaled by that series' median absolute deviation, so a large state and a small one are judged on their own noise.
+    Must run on the combined data: a single daily file has one row per series and nothing to compare against.
+    Adds `is_anomaly` (0/1).
+    """
+    df = df.copy().sort_values(["state", "land_type", "date"])
+    rel = df.groupby(["state", "land_type"])["area_ha"].transform(
+        lambda x: x / x.rolling(SHOCK_WINDOW_DAYS, center=True, min_periods=3).median() - 1)
+    mad = rel.groupby([df["state"], df["land_type"]]).transform(lambda r: (r - r.median()).abs().median())
+    robust_z = (rel - rel.groupby([df["state"], df["land_type"]]).transform("median")).abs() / (1.4826 * mad)
+    df["is_anomaly"] = (robust_z > threshold).fillna(False).astype(int)
+
+    n_anomalies = int(df["is_anomaly"].sum())
+    logger.info("Shock detection (robust z>%.1f): flagged %d / %d records (%.2f%%).",
+                threshold, n_anomalies, len(df), 100 * n_anomalies / max(len(df), 1))
+    return df.sort_index()
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +275,6 @@ def transform(df: pd.DataFrame, source: str = "unknown") -> pd.DataFrame:
     df = normalize_dates(df)
     df = compute_co2(df)
     df = add_derived_features(df)
-    df = detect_outliers(df)
     df = deduplicate(df)
     df = ensure_source_file(df, default=source)
 
