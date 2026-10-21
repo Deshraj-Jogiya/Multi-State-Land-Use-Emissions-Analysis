@@ -58,3 +58,14 @@ def test_cap_values_are_the_census_land_areas():
     states = geo.load_states().set_index("state")
     for state, cap in tf.STATE_LAND_AREA_HA.items():
         assert abs(cap - states.loc[state, "census_land_m2"] / 1e4) < 1
+
+
+def test_vectorised_detector_flags_the_same_days_as_the_per_series_version():
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "benchmarks"))
+    from detection_time import detect_outliers_per_series, simulated
+    from etl.transform import detect_outliers
+    df = simulated(states=3, days=120, seed=4)
+    assert detect_outliers(df)["is_anomaly"].equals(detect_outliers_per_series(df)["is_anomaly"])
+    assert detect_outliers(df)["is_anomaly"].sum() > 0

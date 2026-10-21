@@ -14,6 +14,9 @@ tests whether Random Forest and Linear Regression can forecast the balance a wee
 - **Shock detection:** each day is compared with the same state and land type's surrounding week, scaled by that series' own
   noise. It flags all 53 shocks the generator injected with no false alarms; the shocks (2–8% in a day) stand far above the 0.1%
   daily noise, so this confirms the method works rather than measuring how hard real data would be.
+  The detector computes its rolling medians with grouped pandas operations instead of a Python function per series: **52% faster**
+  on this project's 5,350 records (9.5 ms against 19.6 ms) and 24% faster on 273,750, flagging exactly the same days
+  (`benchmarks/detection_time.py`).
 - **Forecasting, measured honestly:** both models forecast each state and land type a week ahead from lagged values only and are
   scored on the final four weeks. Random Forest reaches 99.79% accuracy (1 − WAPE) and Linear Regression 99.77%, but repeating
   last week's value already reaches 99.82%: daily land cover barely moves outside shocks, so the models add nothing here. An
