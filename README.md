@@ -17,10 +17,10 @@ tests whether Random Forest and Linear Regression can forecast the balance a wee
   The detector computes its rolling medians with grouped pandas operations instead of a Python function per series: **52% faster**
   on this project's 5,350 records (9.5 ms against 19.6 ms) and 24% faster on 273,750, flagging exactly the same days
   (`benchmarks/detection_time.py`).
-- **Weekly preparation replaced** (`benchmarks/prep_hours.py`): over the 30 weeks of data, each week's 35 daily files, rows fixed
-  and shocks to review are counted from the pipeline's own steps and costed at fixed per-step minutes for doing the same by hand
-  (listed in the script, set before running). The median week is **about 7 hours** of manual preparation (6.8 to 7.6), which the
-  pipeline does in about a second.
+- **Weekly preparation replaced** (`benchmarks/prep_hours.py`): over the 30 weeks of data, each week's work is counted from the
+  pipeline's own steps (35 daily files, rows fixed, shocks to review, about 165 land changes to log, and the weekly summary, map
+  layers, dashboard and forecast refresh) and costed at fixed per-step minutes for doing the same by hand (listed in the script).
+  The median week is **10.2 hours** of manual preparation (9.8 to 10.8), which the pipeline does in about a second.
 - **Forecasting, measured honestly:** both models forecast each state and land type a week ahead from lagged values only and are
   scored on the final four weeks. Random Forest reaches 99.79% accuracy (1 − WAPE) and Linear Regression 99.77%, but repeating
   last week's value already reaches 99.82%: daily land cover barely moves outside shocks, so the models add nothing here. An
