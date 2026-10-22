@@ -19,13 +19,13 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 
 # Allow imports from project root
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from etl.transform import transform, detect_land_changes, detect_outliers
+from etl.transform import STATE_BASELINES, transform, detect_land_changes, detect_outliers
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -51,25 +51,6 @@ OUTPUT_DIR: Path = ROOT / "outputs"
 DB_PATH:    Path = OUTPUT_DIR / "land_use_emissions.db"
 
 SCHEMA_PATH: Path = ROOT / "db" / "schema.sql"
-
-# CO2 factors (tons CO2 per hectare; negative = sequestration)
-CO2_FACTORS: dict[str, float] = {
-    "forest":      -3.5,
-    "urban":       +2.1,
-    "agriculture": +0.8,
-    "wetland":     -1.2,
-    "shrubland":   -0.3,
-}
-
-# Realistic baseline areas per state (hectares) — sum over land types
-# Proportions roughly reflect actual state land cover distributions
-STATE_BASELINES: dict[str, dict[str, float]] = {
-    "AL": {"forest": 9_500_000, "urban":   620_000, "agriculture": 3_200_000, "wetland":  400_000, "shrubland":  180_000},
-    "CA": {"forest": 6_800_000, "urban": 2_400_000, "agriculture": 9_600_000, "wetland":  150_000, "shrubland": 4_200_000},
-    "TX": {"forest": 5_600_000, "urban": 2_900_000, "agriculture":19_000_000, "wetland":  800_000, "shrubland": 5_300_000},
-    "WA": {"forest":10_400_000, "urban":   720_000, "agriculture": 4_200_000, "wetland":  320_000, "shrubland": 1_100_000},
-    "FL": {"forest": 6_100_000, "urban": 1_800_000, "agriculture": 4_400_000, "wetland": 2_900_000, "shrubland":  400_000},
-}
 
 # Random seed for reproducibility
 RNG_SEED: int = 42
@@ -212,7 +193,8 @@ def initialize_database(engine) -> None:
 
 def ingest_records(df: pd.DataFrame, engine, table: str = "land_use_records") -> int:
     """
-    Appends cleaned records to the target table.
+    Loads cleaned records into the target table, first deleting any rows already stored for the same states and dates, so
+    rerunning the pipeline replaces a period instead of adding a second copy of it.
     Returns the number of rows inserted.
     """
     cols_for_table = [
@@ -222,8 +204,19 @@ def ingest_records(df: pd.DataFrame, engine, table: str = "land_use_records") ->
     # Only keep columns that exist in df
     cols = [c for c in cols_for_table if c in df.columns]
     df_insert = df[cols].copy()
+    _delete_period(engine, table, "date", df_insert["state"], df_insert["date"])
     df_insert.to_sql(table, con=engine, if_exists="append", index=False)
     return len(df_insert)
+
+
+def _delete_period(engine, table: str, date_col: str, states: pd.Series, dates: pd.Series) -> None:
+    if not inspect(engine).has_table(table):   # land_changes is created by its first write
+        return
+    dates = pd.to_datetime(dates).dt.strftime("%Y-%m-%d")
+    params = {f"s{i}": s for i, s in enumerate(sorted(set(states)))}
+    with engine.begin() as conn:
+        conn.execute(text(f"DELETE FROM {table} WHERE {date_col} BETWEEN :lo AND :hi AND state IN ({', '.join(':' + k for k in params)})"),
+                     {"lo": dates.min(), "hi": dates.max(), **params})
 
 
 def score_shock_detection(df: pd.DataFrame, engine) -> dict:
@@ -242,11 +235,12 @@ def score_shock_detection(df: pd.DataFrame, engine) -> dict:
 
 def ingest_changes(change_df: pd.DataFrame, engine) -> int:
     """
-    Appends land change events to the land_changes table.
+    Loads land change events into the land_changes table, replacing any already stored for the same states and dates.
     """
     if change_df.empty:
         return 0
     cols = ["state", "change_date", "from_type", "to_type", "area_changed", "co2_impact", "notes"]
+    _delete_period(engine, "land_changes", "change_date", change_df["state"], change_df["change_date"])
     change_df[cols].to_sql("land_changes", con=engine, if_exists="append", index=False)
     return len(change_df)
 

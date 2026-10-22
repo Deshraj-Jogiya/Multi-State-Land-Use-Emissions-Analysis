@@ -21,6 +21,8 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import Point
 
+from etl.epa_inventory import FACTOR_YEAR, annual_tons
+
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -84,6 +86,14 @@ def state_layer(records: pd.DataFrame, states: gpd.GeoDataFrame) -> gpd.GeoDataF
     totals["avg_daily_net_co2_tons"] = (totals["net_co2_tons"] / totals["days"]).round(0)
     layer = states.merge(totals, on="state", how="left")
     layer["avg_daily_tons_per_km2_land"] = (layer["avg_daily_net_co2_tons"] / (layer["census_land_m2"] / 1e6)).round(3)
+    # EPA's real 2022 land-use inventory for each state, joined on the state code, next to the pipeline's estimate for a year
+    epa = annual_tons()
+    epa = epa[epa["year"] == FACTOR_YEAR].groupby("state")["net_tg_co2e"].sum().rename("epa_net_tg_co2e_2022").reset_index()
+    layer = layer.merge(epa, on="state", how="left")
+    layer["epa_tons_per_km2_land_2022"] = (layer["epa_net_tg_co2e_2022"] * 1e6 / (layer["census_land_m2"] / 1e6)).round(1)
+    layer["pipeline_tg_co2e_per_year"] = (layer["avg_daily_net_co2_tons"] * 365 / 1e6).round(3)
+    layer["pipeline_vs_epa_pct"] = ((layer["pipeline_tg_co2e_per_year"] / layer["epa_net_tg_co2e_2022"] - 1) * 100).round(2)
+    layer["epa_net_tg_co2e_2022"] = layer["epa_net_tg_co2e_2022"].round(3)
     return layer.drop(columns=["net_co2_tons"])
 
 

@@ -1,4 +1,4 @@
 model,forecast_accuracy,r2
-Linear Regression,0.9977,1.0
-Random Forest,0.9979,1.0
-Same day last week,0.9982,
+Linear Regression,0.9981,1.0
+Random Forest,0.9983,1.0
+Same day last week,0.9984,

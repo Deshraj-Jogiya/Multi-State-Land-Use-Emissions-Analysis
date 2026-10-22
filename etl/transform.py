@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import logging
 
+from etl.epa_inventory import daily_factors
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -24,16 +26,22 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-CO2_FACTORS: dict[str, float] = {
-    "forest":      -3.5,   # tons CO2/ha  (sequestration)
-    "urban":       +2.1,   # tons CO2/ha  (emission)
-    "agriculture": +0.8,   # tons CO2/ha  (emission)
-    "wetland":     -1.2,   # tons CO2/ha  (mild sequestration)
-    "shrubland":   -0.3,   # tons CO2/ha  (mild sequestration)
+# Baseline area per state and land type (hectares); proportions roughly follow each state's land cover. The simulated daily files
+# start from these.
+STATE_BASELINES: dict[str, dict[str, float]] = {
+    "AL": {"forest": 9_500_000, "urban":   620_000, "agriculture": 3_200_000, "wetland":  400_000, "shrubland":  180_000},
+    "CA": {"forest": 6_800_000, "urban": 2_400_000, "agriculture": 9_600_000, "wetland":  150_000, "shrubland": 4_200_000},
+    "TX": {"forest": 5_600_000, "urban": 2_900_000, "agriculture":19_000_000, "wetland":  800_000, "shrubland": 5_300_000},
+    "WA": {"forest":10_400_000, "urban":   720_000, "agriculture": 4_200_000, "wetland":  320_000, "shrubland": 1_100_000},
+    "FL": {"forest": 6_100_000, "urban": 1_800_000, "agriculture": 4_400_000, "wetland": 2_900_000, "shrubland":  400_000},
 }
 
+# Tons CO2e per hectare per day for each (state, land type), from EPA's 2022 state inventory (etl/epa_inventory.py): a year of the
+# simulated land cover at its baseline area adds up to EPA's real net flux for that state and land type. Negative = net removal.
+EMISSION_FACTORS: dict[tuple[str, str], float] = daily_factors(STATE_BASELINES)
+
 VALID_STATES: set[str] = {"AL", "CA", "TX", "WA", "FL"}
-VALID_LAND_TYPES: set[str] = set(CO2_FACTORS.keys())
+VALID_LAND_TYPES: set[str] = {"forest", "urban", "agriculture", "wetland", "shrubland"}
 
 AREA_MIN_HA: float = 0.0
 # Upper bound for one land type's area: the state's whole land area (US Census Bureau, 2023 boundaries).
@@ -154,11 +162,11 @@ def normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
 
 def compute_co2(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculates CO2 tons based on area_ha and per-land-type emission factor.
+    Daily CO2e tons: area_ha times the state and land type's EPA-derived factor (tons CO2e per hectare per day).
     Adds columns: emission_factor, co2_tons.
     """
     df = df.copy()
-    df["emission_factor"] = df["land_type"].map(CO2_FACTORS)
+    df["emission_factor"] = [EMISSION_FACTORS.get(k, 0.0) for k in zip(df["state"], df["land_type"])]
     df["co2_tons"] = df["area_ha"] * df["emission_factor"]
     logger.info("Computed co2_tons for %d records.", len(df))
     return df
@@ -321,8 +329,8 @@ def detect_land_changes(df: pd.DataFrame) -> pd.DataFrame:
                     to_type   = land_type
                     from_type = "forest"  # assume lost from forest (simplified)
 
-                co2_factor_from = CO2_FACTORS.get(from_type, 0)
-                co2_factor_to   = CO2_FACTORS.get(to_type,   0)
+                co2_factor_from = EMISSION_FACTORS.get((state, from_type), 0)
+                co2_factor_to   = EMISSION_FACTORS.get((state, to_type),   0)
                 co2_impact = abs(delta) * (co2_factor_to - co2_factor_from)
 
                 changes.append({

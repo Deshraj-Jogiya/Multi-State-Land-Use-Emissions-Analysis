@@ -1,0 +1,4 @@
+model,accuracy_1_minus_wape,test_years,series,test_points
+Linear Regression,0.9418,2018-2022,25,125
+Random Forest,0.9329,2018-2022,25,125
+Last year's value,0.947,2018-2022,25,125

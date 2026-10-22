@@ -20,5 +20,6 @@ jobs:
           python etl/pipeline.py
           python models/forecast.py
           python viz/dashboard_export.py
+          python models/epa_forecast.py
       - name: Run the tests
         run: pip install pytest && python -m pytest tests/ -v

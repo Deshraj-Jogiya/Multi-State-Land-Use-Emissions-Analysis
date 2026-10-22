@@ -5,3 +5,4 @@ matplotlib>=3.7.0
 seaborn>=0.12.0
 sqlalchemy>=2.0.0
 geopandas>=1.0
+openpyxl>=3.1  # only to rebuild data/epa from EPA's workbook
